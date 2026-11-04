@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.16)
+project(semester2_lab2 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+add_executable(lab2 lab2.cpp array.cpp stack.cpp DoubleList.cpp value3.cpp)
+if(WIN32)
+    target_link_libraries(lab2 PRIVATE shell32)
+endif()
