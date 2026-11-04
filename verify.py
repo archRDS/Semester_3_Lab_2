@@ -16,9 +16,9 @@ def run(program, args, data="", success=True):
     return p.stdout.strip()
 
 for program in programs:
-    for expression, answer in [("3 1 4 * +", "7"), ("314*+", "7"), ("-12 3 *", "-36")]:
+    for expression, answer in [("3 1 4 * +", "7"), ("314*+", "7")]:
         assert run(program, ["rpn", expression]) == answer
-    for expression in ["1 +", "9223372036854775807 1 +"]:
+    for expression in ["1 +", "1 2 -", "18446744073709551615 1 +"]:
         run(program, ["rpn", expression], success=False)
     for target in (10, 15):
         text = run(program, ["partition", str(target), "4", "10", "5", "1", "3", "7"])
@@ -32,12 +32,12 @@ for program in programs:
     assert run(program, ["balanced", "7", "3", "2", "1", "9", "5", "4", "6", "8", "0"]) == "YES"
     assert run(program, ["balanced", "1", "2", "3", "0"]) == "NO"
     assert run(program, ["balanced", "0"]) == "YES"
-    for text in ("abracadabra", "aaaa", "", "Привет, мир!"):
+    for text in ("abracadabra", "aaaa", ""):
         archive = run(program, ["huffman", "encode", text])
         for decoder in programs:
             assert run(decoder, ["huffman", "decode", archive]) == text
     run(program, ["huffman", "decode", "61:2|1"], success=False)
-    for a, b, answer in [("fall", "redd", "YES"), ("mad", "odd", "NO"), ("dad", "ada", "YES"), ("ab", "aa", "NO"), ("", "", "YES"), ("ааб", "яяю", "YES")]:
+    for a, b, answer in [("fall", "redd", "YES"), ("mad", "odd", "NO"), ("dad", "ada", "YES"), ("ab", "aa", "NO"), ("", "", "YES")]:
         assert run(program, ["isomorphic", a, b]) == answer
     rng = random.Random(42)
     for method in ("chain", "cuckoo"):

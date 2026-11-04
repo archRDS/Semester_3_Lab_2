@@ -3,6 +3,7 @@
 #include "stack.h"
 #include "value3.h"
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
@@ -22,11 +23,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#ifdef _WIN32
-#define NOMINMAX
-#include <windows.h>
-#include <shellapi.h>
-#endif
 using namespace std;
 
 static string join(const vector<string>& a, size_t from = 0) {
@@ -34,12 +30,12 @@ static string join(const vector<string>& a, size_t from = 0) {
     for (size_t i = from; i < a.size(); ++i) { if (i > from) s += ' '; s += a[i]; }
     return s;
 }
-static long long integer(const string& s) {
-    size_t n = 0;
-    long long x;
-    try { x = stoll(s, &n); } catch (...) { throw runtime_error("invalid integer: " + s); }
-    if (n != s.size()) throw runtime_error("invalid integer: " + s);
-    return x;
+static uint64_t integer(const string& s) {
+    uint64_t value;
+    auto result = from_chars(s.data(), s.data() + s.size(), value);
+    if (result.ec != errc{} || result.ptr != s.data() + s.size())
+        throw runtime_error("invalid uint64: " + s);
+    return value;
 }
 static vector<string> split(const string& s) {
     istringstream in(s); vector<string> v; string x;
@@ -48,7 +44,7 @@ static vector<string> split(const string& s) {
 }
 
 // 1. RPN: the linked Stack from Lab 1 stores intermediate results.
-static long long rpn(const string& expression) {
+static uint64_t rpn(const string& expression) {
     vector<string> tokens = split(expression);
     bool compact = tokens.size() == 1;
     if (compact) { try { integer(tokens[0]); compact = false; } catch (...) {} }
@@ -60,17 +56,18 @@ static long long rpn(const string& expression) {
     for (const string& t : tokens) {
         if (t == "+" || t == "-" || t == "*") {
             if (!st->top || !st->top->next) throw runtime_error("invalid RPN expression");
-            long long b = integer(stackPop(st.get())), a = integer(stackPop(st.get()));
-            const auto lo = numeric_limits<long long>::min(), hi = numeric_limits<long long>::max();
-            bool overflow = false;
-            if (t == "+") overflow = (b > 0 && a > hi-b) || (b < 0 && a < lo-b);
-            else if (t == "-") overflow = (b < 0 && a > hi+b) || (b > 0 && a < lo+b);
-            else if (a && b) {
-                if (a > 0) overflow = b > 0 ? a > hi/b : b < lo/a;
-                else overflow = b > 0 ? a < lo/b : a < hi/b;
+            uint64_t b = integer(stackPop(st.get())), a = integer(stackPop(st.get()));
+            uint64_t value;
+            if (t == "+") {
+                if (a > numeric_limits<uint64_t>::max() - b) throw runtime_error("integer overflow");
+                value = a + b;
+            } else if (t == "-") {
+                if (a < b) throw runtime_error("negative result is not uint64");
+                value = a - b;
+            } else {
+                if (b && a > numeric_limits<uint64_t>::max() / b) throw runtime_error("integer overflow");
+                value = a * b;
             }
-            if (overflow) throw runtime_error("integer overflow");
-            long long value = t == "+" ? a+b : t == "-" ? a-b : a*b;
             stackPush(st.get(), to_string(value));
         } else stackPush(st.get(), to_string(integer(t)));
     }
@@ -208,19 +205,19 @@ static string setQuery(const string& path, const string& query) {
 }
 
 // 3. Equal-sum partition: use the set from task 2 to remove duplicate input values.
-static vector<vector<long long>> partition(long long target, const vector<string>& args) {
-    if (target <= 0) throw runtime_error("sum must be positive");
-    HashTable unique; vector<long long> numbers; long long total = 0;
-    for (auto& s : args) { long long v = integer(s); if (v <= 0) throw runtime_error("elements must be natural numbers"); if (unique.put(to_string(v), "1")) { if (v > numeric_limits<long long>::max() - total) throw runtime_error("sum overflow"); numbers.push_back(v); total += v; } }
+static vector<vector<uint64_t>> partition(uint64_t target, const vector<string>& args) {
+    if (target == 0) throw runtime_error("sum must be positive");
+    HashTable unique; vector<uint64_t> numbers; uint64_t total = 0;
+    for (auto& s : args) { uint64_t v = integer(s); if (v == 0) throw runtime_error("elements must be natural numbers"); if (unique.put(to_string(v), "1")) { if (v > numeric_limits<uint64_t>::max() - total) throw runtime_error("sum overflow"); numbers.push_back(v); total += v; } }
     if (numbers.empty() || total % target) throw runtime_error("partition impossible");
     size_t groups = total / target; if (groups > numbers.size()) throw runtime_error("partition impossible");
     sort(numbers.rbegin(), numbers.rend()); if (numbers[0] > target) throw runtime_error("partition impossible");
-    vector<long long> sums(groups); vector<vector<long long>> result(groups);
+    vector<uint64_t> sums(groups); vector<vector<uint64_t>> result(groups);
     function<bool(size_t)> search = [&](size_t i) {
-        if (i == numbers.size()) return all_of(sums.begin(), sums.end(), [&](long long x){ return x == target; });
-        set<long long> tried;
+        if (i == numbers.size()) return all_of(sums.begin(), sums.end(), [&](uint64_t x){ return x == target; });
+        set<uint64_t> tried;
         for (size_t j = 0; j < groups; ++j) {
-            if (sums[j] + numbers[i] > target || !tried.insert(sums[j]).second) continue;
+            if (numbers[i] > target - sums[j] || !tried.insert(sums[j]).second) continue;
             bool empty = sums[j] == 0; sums[j] += numbers[i]; result[j].push_back(numbers[i]);
             if (search(i + 1)) return true;
             result[j].pop_back(); sums[j] -= numbers[i];
@@ -375,29 +372,12 @@ static void usage() {
 }
 int main(int argc,char** argv) {
     try {
-#ifdef _WIN32
-        // Windows narrow argv uses the system code page; normalize arguments to UTF-8.
-        int wideCount = 0;
-        wchar_t** wide = CommandLineToArgvW(GetCommandLineW(), &wideCount);
-        if (!wide) throw runtime_error("cannot read command line");
-        vector<string> storage;
-        vector<char*> pointers;
-        for (int i = 0; i < wideCount; ++i) {
-            int n = WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, nullptr, 0, nullptr, nullptr);
-            string value(n, '\0');
-            WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, value.data(), n, nullptr, nullptr);
-            value.pop_back(); storage.push_back(value);
-        }
-        LocalFree(wide);
-        for (auto& value : storage) pointers.push_back(value.data());
-        argc = wideCount; argv = pointers.data();
-#endif
         vector<string> a(argv+1,argv+argc); if(a.empty()) {usage();return 1;}
         if(a.size()==4 && a[0]=="--file" && a[2]=="--query") cout<<setQuery(a[1],a[3])<<'\n';
         else if(a[0]=="rpn" && a.size()>1) cout<<rpn(join(a,1))<<'\n';
         else if(a[0]=="partition" && a.size()>2) { auto groups=partition(integer(a[1]),vector<string>(a.begin()+2,a.end())); for(auto& g:groups) { cout<<'{' ; for(size_t i=0;i<g.size();++i) cout<<(i?" ":"")<<g[i]; cout<<"}\n"; } }
         else if(a[0]=="subsets") for(auto& s:subsets(vector<string>(a.begin()+1,a.end()))) cout<<s<<'\n';
-        else if(a[0]=="balanced") { unique_ptr<AvlTree,decltype(&avlDestroy)> tree(avlCreate(),avlDestroy); for(size_t i=1;i<a.size();++i) { long long x=integer(a[i]); if(!x) break; if(x<numeric_limits<int>::min()||x>numeric_limits<int>::max()) throw runtime_error("tree key out of range"); bstInsert(*tree,(int)x); } cout<<(bstBalanced(*tree)?"YES":"NO")<<'\n'; }
+        else if(a[0]=="balanced") { unique_ptr<AvlTree,decltype(&avlDestroy)> tree(avlCreate(),avlDestroy); for(size_t i=1;i<a.size();++i) { uint64_t x=integer(a[i]); if(!x) break; if(x>numeric_limits<int>::max()) throw runtime_error("tree key out of range"); bstInsert(*tree,(int)x); } cout<<(bstBalanced(*tree)?"YES":"NO")<<'\n'; }
         else if(a.size()==3 && a[0]=="huffman" && a[1]=="encode") cout<<huffEncode(a[2])<<'\n';
         else if(a.size()==3 && a[0]=="huffman" && a[1]=="decode") cout<<huffDecode(a[2])<<'\n';
         else if(a.size()==2 && a[0]=="hash" && (a[1]=="chain"||a[1]=="cuckoo")) hashSession(a[1]=="cuckoo");

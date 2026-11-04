@@ -22,10 +22,17 @@ func labInt(s string) (int64, error) {
 	}
 	return v, nil
 }
-func labRPN(expression string) (int64, error) {
+func labUint(s string) (uint64, error) {
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid uint64: %s", s)
+	}
+	return v, nil
+}
+func labRPN(expression string) (uint64, error) {
 	tokens := strings.Fields(expression)
 	if len(tokens) == 1 {
-		if _, err := labInt(tokens[0]); err != nil && strings.ContainsAny(tokens[0], "+-*") {
+		if _, err := labUint(tokens[0]); err != nil && strings.ContainsAny(tokens[0], "+-*") {
 			tokens = nil
 			for _, c := range expression {
 				if c != ' ' {
@@ -40,39 +47,39 @@ func labRPN(expression string) (int64, error) {
 			if stack.top == nil || stack.top.next == nil {
 				return 0, errors.New("invalid RPN expression")
 			}
-			b, _ := labInt(stackPop(stack))
-			a, _ := labInt(stackPop(stack))
-			var value int64
+			b, _ := labUint(stackPop(stack))
+			a, _ := labUint(stackPop(stack))
+			var value uint64
 			switch token {
 			case "+":
-				if (b > 0 && a > labMaxInt-b) || (b < 0 && a < labMinInt-b) {
+				if a > ^uint64(0)-b {
 					return 0, errors.New("integer overflow")
 				}
 				value = a + b
 			case "-":
-				if (b < 0 && a > labMaxInt+b) || (b > 0 && a < labMinInt+b) {
-					return 0, errors.New("integer overflow")
+				if a < b {
+					return 0, errors.New("negative result is not uint64")
 				}
 				value = a - b
 			case "*":
-				if b != 0 && (a == labMinInt && b == -1 || b == labMinInt && a == -1 || a*b/b != a) {
+				if b != 0 && a > ^uint64(0)/b {
 					return 0, errors.New("integer overflow")
 				}
 				value = a * b
 			}
-			stackPush(stack, strconv.FormatInt(value, 10))
+			stackPush(stack, strconv.FormatUint(value, 10))
 		} else {
-			v, err := labInt(token)
+			v, err := labUint(token)
 			if err != nil {
 				return 0, err
 			}
-			stackPush(stack, strconv.FormatInt(v, 10))
+			stackPush(stack, strconv.FormatUint(v, 10))
 		}
 	}
 	if stack.top == nil || stack.top.next != nil {
 		return 0, errors.New("invalid RPN expression")
 	}
-	return labInt(stackGet(stack))
+	return labUint(stackGet(stack))
 }
 
 type hashEntry struct {
@@ -372,23 +379,23 @@ func labSetQuery(path, query string) (string, error) {
 	return "", errors.New("unknown set operation")
 }
 
-func labPartition(target int64, args []string) ([][]int64, error) {
-	if target <= 0 {
+func labPartition(target uint64, args []string) ([][]uint64, error) {
+	if target == 0 {
 		return nil, errors.New("sum must be positive")
 	}
 	unique := newLabHash(false)
-	numbers := []int64{}
-	var total int64
+	numbers := []uint64{}
+	var total uint64
 	for _, s := range args {
-		v, err := labInt(s)
+		v, err := labUint(s)
 		if err != nil {
 			return nil, err
 		}
-		if v <= 0 {
+		if v == 0 {
 			return nil, errors.New("elements must be natural numbers")
 		}
-		if unique.put(strconv.FormatInt(v, 10), "1") {
-			if v > labMaxInt-total {
+		if unique.put(strconv.FormatUint(v, 10), "1") {
+			if v > ^uint64(0)-total {
 				return nil, errors.New("sum overflow")
 			}
 			numbers = append(numbers, v)
@@ -406,8 +413,8 @@ func labPartition(target int64, args []string) ([][]int64, error) {
 	if numbers[0] > target {
 		return nil, errors.New("partition impossible")
 	}
-	sums := make([]int64, groups)
-	result := make([][]int64, groups)
+	sums := make([]uint64, groups)
+	result := make([][]uint64, groups)
 	var search func(int) bool
 	search = func(i int) bool {
 		if i == len(numbers) {
@@ -418,9 +425,9 @@ func labPartition(target int64, args []string) ([][]int64, error) {
 			}
 			return true
 		}
-		tried := make(map[int64]bool)
+		tried := make(map[uint64]bool)
 		for j := 0; j < groups; j++ {
-			if sums[j]+numbers[i] > target || tried[sums[j]] {
+			if numbers[i] > target-sums[j] || tried[sums[j]] {
 				continue
 			}
 			tried[sums[j]] = true
@@ -857,7 +864,7 @@ func runLab2(a []string) error {
 		}
 		return err
 	case a[0] == "partition" && len(a) > 2:
-		target, err := labInt(a[1])
+		target, err := labUint(a[1])
 		if err != nil {
 			return err
 		}
@@ -868,7 +875,7 @@ func runLab2(a []string) error {
 		for _, group := range groups {
 			parts := make([]string, len(group))
 			for i, n := range group {
-				parts[i] = strconv.FormatInt(n, 10)
+				parts[i] = strconv.FormatUint(n, 10)
 			}
 			fmt.Println("{" + strings.Join(parts, " ") + "}")
 		}
