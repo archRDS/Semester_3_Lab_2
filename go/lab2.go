@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"container/heap"
 	"errors"
 	"fmt"
 	"os"
@@ -477,10 +476,8 @@ func labSubsets(args []string) []string {
 }
 
 type labTreeNode struct {
-	key             int64
-	left, right     *labTreeNode
-	weight          uint64
-	symbol, minimum int
+	key         int64
+	left, right *labTreeNode
 }
 
 func labBalanced(args []string) (bool, error) {
@@ -542,154 +539,6 @@ func labBalanced(args []string) (bool, error) {
 		}
 	}
 	return okay, nil
-}
-
-type labHuffNode = labTreeNode
-type labHuffHeap []*labHuffNode
-
-func (h labHuffHeap) Len() int { return len(h) }
-func (h labHuffHeap) Less(i, j int) bool {
-	if h[i].weight != h[j].weight {
-		return h[i].weight < h[j].weight
-	}
-	return h[i].minimum < h[j].minimum
-}
-func (h labHuffHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
-func (h *labHuffHeap) Push(x interface{}) { *h = append(*h, x.(*labHuffNode)) }
-func (h *labHuffHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	x := old[n-1]
-	*h = old[:n-1]
-	return x
-}
-func labHuffTree(counts [256]uint64) *labHuffNode {
-	h := &labHuffHeap{}
-	heap.Init(h)
-	for i, n := range counts {
-		if n > 0 {
-			heap.Push(h, &labHuffNode{weight: n, symbol: i, minimum: i})
-		}
-	}
-	for h.Len() > 1 {
-		a := heap.Pop(h).(*labHuffNode)
-		b := heap.Pop(h).(*labHuffNode)
-		minimum := a.minimum
-		if b.minimum < minimum {
-			minimum = b.minimum
-		}
-		heap.Push(h, &labHuffNode{weight: a.weight + b.weight, symbol: -1, minimum: minimum, left: a, right: b})
-	}
-	if h.Len() == 0 {
-		return nil
-	}
-	return heap.Pop(h).(*labHuffNode)
-}
-func labHuffCodes(node *labHuffNode, prefix string, codes *[256]string) {
-	if node.symbol >= 0 {
-		if prefix == "" {
-			prefix = "0"
-		}
-		codes[node.symbol] = prefix
-		return
-	}
-	labHuffCodes(node.left, prefix+"0", codes)
-	labHuffCodes(node.right, prefix+"1", codes)
-}
-func labHuffEncode(input string) string {
-	var counts [256]uint64
-	for i := 0; i < len(input); i++ {
-		counts[input[i]]++
-	}
-	root := labHuffTree(counts)
-	var codes [256]string
-	if root != nil {
-		labHuffCodes(root, "", &codes)
-	}
-	var out strings.Builder
-	first := true
-	for i, n := range counts {
-		if n > 0 {
-			if !first {
-				out.WriteByte(',')
-			}
-			first = false
-			fmt.Fprintf(&out, "%02X:%d", i, n)
-		}
-	}
-	out.WriteByte('|')
-	for i := 0; i < len(input); i++ {
-		out.WriteString(codes[input[i]])
-	}
-	return out.String()
-}
-func labHuffDecode(archive string) (string, error) {
-	bar := strings.IndexByte(archive, '|')
-	if bar < 0 {
-		return "", errors.New("invalid Huffman archive")
-	}
-	var counts [256]uint64
-	var total uint64
-	if bar > 0 {
-		for _, part := range strings.Split(archive[:bar], ",") {
-			if len(part) < 4 || part[2] != ':' {
-				return "", errors.New("invalid Huffman header")
-			}
-			b, err := strconv.ParseUint(part[:2], 16, 8)
-			if err != nil || counts[b] != 0 {
-				return "", errors.New("invalid Huffman header")
-			}
-			n, err := strconv.ParseUint(part[3:], 10, 64)
-			if err != nil || n == 0 {
-				return "", errors.New("invalid Huffman header")
-			}
-			counts[b] = n
-			total += n
-		}
-	}
-	root := labHuffTree(counts)
-	bits := archive[bar+1:]
-	if root == nil {
-		if bits != "" {
-			return "", errors.New("invalid Huffman bits")
-		}
-		return "", nil
-	}
-	var out strings.Builder
-	p := root
-	for _, bit := range bits {
-		if bit != '0' && bit != '1' {
-			return "", errors.New("invalid Huffman bits")
-		}
-		if root.symbol < 0 {
-			if bit == '0' {
-				p = p.left
-			} else {
-				p = p.right
-			}
-		} else if bit != '0' {
-			return "", errors.New("invalid Huffman bits")
-		}
-		if p == nil {
-			return "", errors.New("invalid Huffman bits")
-		}
-		if p.symbol >= 0 {
-			out.WriteByte(byte(p.symbol))
-			p = root
-		}
-	}
-	if p != root || uint64(out.Len()) != total {
-		return "", errors.New("incomplete Huffman bits")
-	}
-	for i := 0; i < out.Len(); i++ {
-		counts[out.String()[i]]--
-	}
-	for _, n := range counts {
-		if n != 0 {
-			return "", errors.New("Huffman frequency mismatch")
-		}
-	}
-	return out.String(), nil
 }
 
 func labIsomorphic(a, b string) bool {
@@ -844,19 +693,29 @@ func labBenchmark(n int) error {
 	return nil
 }
 func labUsage() error {
-	return errors.New("usage: go run . lab2 rpn EXPR | --file FILE --query 'SETADD name value' | partition SUM NUMBERS... | subsets VALUES... | balanced NUMBERS... 0 | huffman encode TEXT | huffman decode ARCHIVE | hash chain|cuckoo | benchmark N | isomorphic A B | lfu CAPACITY")
+	return errors.New("usage: go run . lab2 rpn EXPR | --file FILE --query 'SETADD name value' | partition SUM NUMBERS... | subsets VALUES... | balanced NUMBERS... 0 | hash chain|cuckoo | benchmark N | isomorphic A B | lfu CAPACITY")
 }
 func runLab2(a []string) error {
+	if len(a) == 4 && a[0] == "--file" && a[2] == "--query" {
+		query := strings.Fields(a[3])
+		if len(query) == 0 {
+			return errors.New("empty query")
+		}
+		switch query[0] {
+		case "SETADD", "SETDEL", "SET_AT":
+			result, err := labSetQuery(a[1], a[3])
+			if err == nil {
+				fmt.Println(result)
+			}
+			return err
+		}
+		query[0] = strings.ToLower(query[0])
+		a = query
+	}
 	if len(a) == 0 {
 		return labUsage()
 	}
 	switch {
-	case len(a) == 4 && a[0] == "--file" && a[2] == "--query":
-		result, err := labSetQuery(a[1], a[3])
-		if err == nil {
-			fmt.Println(result)
-		}
-		return err
 	case a[0] == "rpn" && len(a) > 1:
 		result, err := labRPN(strings.Join(a[1:], " "))
 		if err == nil {
@@ -896,15 +755,6 @@ func runLab2(a []string) error {
 			fmt.Println("NO")
 		}
 		return nil
-	case len(a) == 3 && a[0] == "huffman" && a[1] == "encode":
-		fmt.Println(labHuffEncode(a[2]))
-		return nil
-	case len(a) == 3 && a[0] == "huffman" && a[1] == "decode":
-		result, err := labHuffDecode(a[2])
-		if err == nil {
-			fmt.Println(result)
-		}
-		return err
 	case len(a) == 2 && a[0] == "hash" && (a[1] == "chain" || a[1] == "cuckoo"):
 		return labHashSession(a[1] == "cuckoo")
 	case len(a) == 2 && a[0] == "benchmark":

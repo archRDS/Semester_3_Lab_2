@@ -1,4 +1,4 @@
-"""python verify.py path/to/lab2-cpp.exe path/to/lab2-go.exe"""
+"""python verify.py path/to/lab2-cpp path/to/lab2-go"""
 import random
 import subprocess
 import sys
@@ -16,6 +16,10 @@ def run(program, args, data="", success=True):
     return p.stdout.strip()
 
 for program in programs:
+    assert run(program, ["--file", "unused.txt", "--query", "RPN 3 1 4 * +"]) == "7"
+    assert run(program, ["--file", "unused.txt", "--query", "ISOMORPHIC fall redd"]) == "YES"
+    assert run(program, ["--file", "unused.txt", "--query", "LFU 1"], "SET 1 10\nGET 1\n") == "10"
+    run(program, ["--file", "unused.txt", "--query", ""], success=False)
     for expression, answer in [("3 1 4 * +", "7"), ("314*+", "7")]:
         assert run(program, ["rpn", expression]) == answer
     for expression in ["1 +", "1 2 -", "18446744073709551615 1 +"]:
@@ -32,11 +36,6 @@ for program in programs:
     assert run(program, ["balanced", "7", "3", "2", "1", "9", "5", "4", "6", "8", "0"]) == "YES"
     assert run(program, ["balanced", "1", "2", "3", "0"]) == "NO"
     assert run(program, ["balanced", "0"]) == "YES"
-    for text in ("abracadabra", "aaaa", ""):
-        archive = run(program, ["huffman", "encode", text])
-        for decoder in programs:
-            assert run(decoder, ["huffman", "decode", archive]) == text
-    run(program, ["huffman", "decode", "61:2|1"], success=False)
     for a, b, answer in [("fall", "redd", "YES"), ("mad", "odd", "NO"), ("dad", "ada", "YES"), ("ab", "aa", "NO"), ("", "", "YES")]:
         assert run(program, ["isomorphic", a, b]) == answer
     rng = random.Random(42)
@@ -75,4 +74,4 @@ with tempfile.TemporaryDirectory() as directory:
     path = str(Path(directory) / "sets.txt")
     for program, query, expected in [(programs[0], "SETADD s red", "TRUE"), (programs[1], "SET_AT s red", "TRUE"), (programs[1], "SETADD s red", "FALSE"), (programs[0], "SETDEL s red", "TRUE"), (programs[1], "SET_AT s red", "FALSE")]:
         assert run(program, ["--file", path, "--query", query]) == expected
-print(f"PASS: {checks} runs, both languages, randomized hash/LFU, shared files and Huffman archives")
+print(f"PASS: {checks} runs, both languages, randomized hash/LFU, shared set files")

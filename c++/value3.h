@@ -2,7 +2,6 @@
 
 #include <string>
 #include <vector>
-#include <cstdint>
 
 struct AvlNode {
     int key;
@@ -10,14 +9,7 @@ struct AvlNode {
     AvlNode* right;
     unsigned char height;
 
-    // Extra payload for the Huffman tree in Lab 2; BST operations keep using key.
-    std::uint64_t weight = 0;
-    int symbol = -1;
-    int minimum = 0;
-
     AvlNode(int k);
-    AvlNode(std::uint64_t w, int s, int m, AvlNode* l, AvlNode* r)
-        : key(s), left(l), right(r), height(1), weight(w), symbol(s), minimum(m) {}
 };
 
 struct AvlTree {

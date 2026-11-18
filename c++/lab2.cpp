@@ -10,13 +10,11 @@
 #include <cstdlib>
 #include <fstream>
 #include <functional>
-#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
 #include <memory>
 #include <optional>
-#include <queue>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -263,47 +261,6 @@ static bool bstBalanced(const AvlTree& tree) {
     return okay;
 }
 
-// 5*. Huffman tree with deterministic ties; the header lets decoding work alone.
-using HuffNode = AvlNode;
-struct HuffOrder { bool operator()(const HuffNode* a, const HuffNode* b) const { return a->weight != b->weight ? a->weight > b->weight : a->minimum > b->minimum; } };
-static HuffNode* huffTree(const vector<uint64_t>& counts) {
-    priority_queue<HuffNode*, vector<HuffNode*>, HuffOrder> q;
-    for (int i = 0; i < 256; ++i) if (counts[i]) q.push(new HuffNode{counts[i], i, i, nullptr, nullptr});
-    while (q.size() > 1) { auto a=q.top();q.pop(); auto b=q.top();q.pop(); q.push(new HuffNode{a->weight+b->weight, -1, min(a->minimum,b->minimum), a,b}); }
-    return q.empty() ? nullptr : q.top();
-}
-static void huffFree(HuffNode* p) { if (!p) return; huffFree(p->left); huffFree(p->right); delete p; }
-static void huffCodes(HuffNode* p, const string& prefix, vector<string>& codes) {
-    if (p->symbol >= 0) { codes[p->symbol] = prefix.empty() ? "0" : prefix; return; }
-    huffCodes(p->left, prefix+"0", codes); huffCodes(p->right, prefix+"1", codes);
-}
-static string huffEncode(const string& input) {
-    vector<uint64_t> counts(256); for (unsigned char c : input) ++counts[c];
-    unique_ptr<HuffNode, decltype(&huffFree)> root(huffTree(counts), huffFree);
-    vector<string> codes(256); if (root) huffCodes(root.get(), "", codes);
-    ostringstream out; bool first = true;
-    for (int i = 0; i < 256; ++i) if (counts[i]) { if (!first) out << ','; first = false; out << hex << uppercase << setw(2) << setfill('0') << i << dec << ':' << counts[i]; }
-    out << '|'; for (unsigned char c : input) out << codes[c]; return out.str();
-}
-static string huffDecode(const string& archive) {
-    size_t bar = archive.find('|'); if (bar == string::npos) throw runtime_error("invalid Huffman archive");
-    vector<uint64_t> counts(256); istringstream header(archive.substr(0,bar)); string part; uint64_t total=0;
-    while (getline(header, part, ',')) { size_t colon=part.find(':'); if (colon != 2) throw runtime_error("invalid Huffman header"); int byte; istringstream(part.substr(0,2)) >> hex >> byte; if (byte < 0 || byte > 255 || counts[byte]) throw runtime_error("invalid Huffman header"); uint64_t n=stoull(part.substr(3)); if (!n) throw runtime_error("invalid Huffman header"); counts[byte]=n; total+=n; }
-    unique_ptr<HuffNode, decltype(&huffFree)> root(huffTree(counts), huffFree); string bits=archive.substr(bar+1), out;
-    if (!root) { if (!bits.empty()) throw runtime_error("invalid Huffman bits"); return out; }
-    HuffNode* p=root.get();
-    for (char bit : bits) {
-        if (bit!='0' && bit!='1') throw runtime_error("invalid Huffman bits");
-        if (root->symbol < 0) p = bit=='0' ? p->left : p->right;
-        else if (bit!='0') throw runtime_error("invalid Huffman bits");
-        if (!p) throw runtime_error("invalid Huffman bits");
-        if (p->symbol >= 0) { out += char(p->symbol); p=root.get(); }
-    }
-    if (p!=root.get() || out.size()!=total) throw runtime_error("incomplete Huffman bits");
-    vector<uint64_t> actual(256); for (unsigned char c:out) ++actual[c]; if (actual!=counts) throw runtime_error("Huffman frequency mismatch");
-    return out;
-}
-
 static vector<string> utf8(const string& s) {
     vector<string> out;
     for (size_t i=0;i<s.size();) { unsigned char c=s[i]; size_t n=c<128?1:c>=0xF0?4:c>=0xE0?3:c>=0xC0?2:0; if (!n || i+n>s.size()) throw runtime_error("invalid UTF-8"); for(size_t j=1;j<n;++j) if ((static_cast<unsigned char>(s[i+j])&0xC0)!=0x80) throw runtime_error("invalid UTF-8"); out.push_back(s.substr(i,n)); i+=n; }
@@ -368,22 +325,32 @@ static void benchmark(size_t n) {
     }
 }
 static void usage() {
-    cerr << "lab2 rpn EXPR | lab2 --file FILE --query 'SETADD name value' | lab2 partition SUM NUMBERS... | lab2 subsets VALUES... | lab2 balanced NUMBERS... 0 | lab2 huffman encode TEXT | lab2 huffman decode ARCHIVE | lab2 hash chain|cuckoo | lab2 benchmark N | lab2 isomorphic A B | lab2 lfu CAPACITY (commands on stdin)\n";
+    cerr << "lab2 rpn EXPR | lab2 --file FILE --query 'SETADD name value' | lab2 partition SUM NUMBERS... | lab2 subsets VALUES... | lab2 balanced NUMBERS... 0 | lab2 hash chain|cuckoo | lab2 benchmark N | lab2 isomorphic A B | lab2 lfu CAPACITY (commands on stdin)\n";
 }
 int main(int argc,char** argv) {
     try {
-        vector<string> a(argv+1,argv+argc); if(a.empty()) {usage();return 1;}
-        if(a.size()==4 && a[0]=="--file" && a[2]=="--query") cout<<setQuery(a[1],a[3])<<'\n';
-        else if(a[0]=="rpn" && a.size()>1) cout<<rpn(join(a,1))<<'\n';
+        vector<string> a(argv + 1, argv + argc);
+        if (a.size() == 4 && a[0] == "--file" && a[2] == "--query") {
+            auto query = split(a[3]);
+            if (query.empty()) throw runtime_error("empty query");
+            const auto& command = query[0];
+            if (command == "SETADD" || command == "SETDEL" || command == "SET_AT") {
+                cout << setQuery(a[1], a[3]) << '\n';
+                return 0;
+            }
+            for (char& ch : query[0])
+                ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
+            a = std::move(query);
+        }
+        if (a.empty()) { usage(); return 1; }
+        if(a[0]=="rpn" && a.size()>1) cout<<rpn(join(a,1))<<'\n';
         else if(a[0]=="partition" && a.size()>2) { auto groups=partition(integer(a[1]),vector<string>(a.begin()+2,a.end())); for(auto& g:groups) { cout<<'{' ; for(size_t i=0;i<g.size();++i) cout<<(i?" ":"")<<g[i]; cout<<"}\n"; } }
         else if(a[0]=="subsets") for(auto& s:subsets(vector<string>(a.begin()+1,a.end()))) cout<<s<<'\n';
         else if(a[0]=="balanced") { unique_ptr<AvlTree,decltype(&avlDestroy)> tree(avlCreate(),avlDestroy); for(size_t i=1;i<a.size();++i) { uint64_t x=integer(a[i]); if(!x) break; if(x>numeric_limits<int>::max()) throw runtime_error("tree key out of range"); bstInsert(*tree,(int)x); } cout<<(bstBalanced(*tree)?"YES":"NO")<<'\n'; }
-        else if(a.size()==3 && a[0]=="huffman" && a[1]=="encode") cout<<huffEncode(a[2])<<'\n';
-        else if(a.size()==3 && a[0]=="huffman" && a[1]=="decode") cout<<huffDecode(a[2])<<'\n';
         else if(a.size()==2 && a[0]=="hash" && (a[1]=="chain"||a[1]=="cuckoo")) hashSession(a[1]=="cuckoo");
-        else if(a.size()==2 && a[0]=="benchmark") { auto n=integer(a[1]); if(n<0) throw runtime_error("N must be non-negative"); benchmark((size_t)n); }
+        else if(a.size()==2 && a[0]=="benchmark") { auto n=integer(a[1]); benchmark((size_t)n); }
         else if(a.size()==3 && a[0]=="isomorphic") cout<<(isomorphic(a[1],a[2])?"YES":"NO")<<'\n';
-        else if(a.size()==2 && a[0]=="lfu") { auto n=integer(a[1]); if(n<0) throw runtime_error("capacity must be non-negative"); LFU cache((size_t)n); string line; while(getline(cin,line)) { auto w=split(line); if(w.empty())continue; if(w[0]=="SET"&&w.size()==3) cache.set(w[1],w[2]); else if(w[0]=="GET"&&w.size()==2) cout<<cache.get(w[1])<<'\n'; else throw runtime_error("LFU commands: SET key value, GET key"); } }
+        else if(a.size()==2 && a[0]=="lfu") { auto n=integer(a[1]); LFU cache((size_t)n); string line; while(getline(cin,line)) { auto w=split(line); if(w.empty())continue; if(w[0]=="SET"&&w.size()==3) cache.set(w[1],w[2]); else if(w[0]=="GET"&&w.size()==2) cout<<cache.get(w[1])<<'\n'; else throw runtime_error("LFU commands: SET key value, GET key"); } }
         else { usage(); return 1; }
     } catch(const exception& e) { cerr<<"error: "<<e.what()<<'\n'; return 1; }
 }
